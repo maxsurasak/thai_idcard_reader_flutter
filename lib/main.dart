@@ -1,3 +1,5 @@
+import 'dart:ffi';
+
 import 'package:flutter/services.dart';
 import 'common.dart';
 import 'dart:core';
@@ -30,5 +32,33 @@ class ThaiIdcardReaderFlutter {
         ? await _channel.invokeMethod('read', {'selected': only})
         : await _channel.invokeMethod('readAll');
     return ThaiIDCard.fromJson(res);
+  }
+  static Future<String> powerOn() async {
+    var res = await _channel.invokeMethod('powerOn');
+    return res;
+  }
+  static Future<UsbDevice> openDevice(UsbDevice usbDevice) async {
+    var res = await _channel.invokeMethod('openDevice',usbDevice.toMap());
+    return UsbDevice.fromMap(res);
+  }
+  static Future<String> powerOff() async {
+    var res = await _channel.invokeMethod('powerOff');
+    return res;
+  }
+
+  static Future<List<UsbDevice>> getDeviceList({List<String> only = const []}) async {
+    List<dynamic> res = await _channel.invokeMethod('getDeviceList');
+    List<UsbDevice> data  = [];
+    if (res.isNotEmpty) {
+      res.asMap().forEach((key, value) {
+        data.add(UsbDevice.fromMap(value));
+      });
+    }
+    return data;
+  }
+
+  static Future<UsbDevice> requestPermission(UsbDevice usbDevice) async {
+    var res = await _channel.invokeMethod('requestPermission',usbDevice.toMap());
+    return UsbDevice.fromMap(res);
   }
 }

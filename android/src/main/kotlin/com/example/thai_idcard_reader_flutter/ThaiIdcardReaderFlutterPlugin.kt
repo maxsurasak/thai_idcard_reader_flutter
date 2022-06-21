@@ -9,6 +9,7 @@ import android.hardware.usb.*
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.util.Log
 import androidx.annotation.NonNull
 import com.acs.smartcard.Reader
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -17,9 +18,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import org.json.JSONObject
 import java.nio.charset.*
 import java.util.*
-import org.json.JSONObject
 
 const val ACTION_USB_PERMISSION = "com.example.thai_idcard_reader_flutter.USB_PERMISSION"
 const val ACTION_USB_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
@@ -192,18 +193,110 @@ class ThaiIdcardReaderFlutterPlugin : FlutterPlugin, MethodCallHandler, EventCha
           result.success("ERR ${e.toString()}")
         }
       }
+      "powerOn" -> {
+        var apdu = ThaiADPU()
+        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+        var slotNum = 0
+        try {
+          // power on
+          var atr = reader.power(slotNum, Reader.CARD_WARM_RESET);
+          Log.d("TAG", atr.toString() ?: "")
+
+          // set state
+          val protocol: Int = reader.setProtocol(slotNum, Reader.PROTOCOL_T0)
+          Log.d("TAG", "Set protocol - $protocol")
+
+          // get id card info
+          val select = byteArrayOf(
+            0x00.toByte(),
+            0xA4.toByte(),
+            0x04.toByte(),
+            0x00.toByte(),
+            0x08.toByte(),
+            0xA0.toByte(),
+            0x00.toByte(),
+            0x00.toByte(),
+            0x00.toByte(), 0x54.toByte(), 0x48.toByte(), 0x00.toByte(), 0x01.toByte()
+          )
+          val response = ByteArray(300)
+          val responsLength: Int
+          responsLength = reader.transmit(slotNum, select, select.size, response, response.size)
+          Log.d("TAG", "Response byte - $responsLength")
+          result.success(atr.toString())
+        } catch (e: Exception) {
+          result.success("ERR powerOn ${e.toString()}")
+        }
+      }
+      "powerOff" -> {
+        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+        try {
+          // power on
+          var atr = reader.close()
+          Log.d("TAG", atr.toString() ?: "")
+          result.success(atr.toString())
+        } catch (e: Exception) {
+          result.success("ERR powerOff ${e.toString()}")
+        }
+      }
+      "openDevice" -> {
+        val context =
+          applicationContext
+            ?: return result.error("IllegalState", "applicationContext null", null)
+        val manager = usbManager ?: return result.error("IllegalState", "usbManager null", null)
+        val reader = mReader ?: return result.error("IllegalState", "mReader null", null)
+        try {
+          // openDevice
+          var list = manager.deviceList
+          val identifier = call.argument<String>("identifier")
+          val device = list[identifier]
+          reader.open(device)
+          var dev = serializeDevice(device)
+          dev["isAttached"] = true
+          dev["hasPermission"] = call.argument<Boolean>("hasPermission")
+          Log.d("TAG", "open")
+          result.success(dev)
+        } catch (e: Exception) {
+          result.success("ERR openDevice ${e.toString()}")
+        }
+
+
+      }
       "requestPermission" -> {
         val context =
             applicationContext
                 ?: return result.error("IllegalState", "applicationContext null", null)
         val manager = usbManager ?: return result.error("IllegalState", "usbManager null", null)
+        var list = manager.deviceList
         val identifier = call.argument<String>("identifier")
-        val device = manager.deviceList[identifier]
+
+        val device = list[identifier]
+        var dev = serializeDevice(device)
+        Log.d("TAG", manager.hasPermission(device).toString() ?: "")
         if (!manager.hasPermission(device)) {
           context.registerReceiver(receiver, IntentFilter(ACTION_USB_PERMISSION))
           manager.requestPermission(device, pendingPermissionIntent(context))
+        }else{
+          dev["isAttached"] = false
+          dev["hasPermission"] = true
         }
-        result.success(null)
+        result.success(dev)
+
+      }
+      "getDeviceList" -> {
+        val context =
+          applicationContext
+            ?: return result.error("IllegalState", "applicationContext null", null)
+        val manager = usbManager ?: return result.error("IllegalState", "usbManager null", null)
+        var deviceList: ArrayList<HashMap<String, Any?>> = ArrayList()
+        for (device in manager.deviceList.values) {
+          var dev = serializeDevice(device)
+          dev["isAttached"] = false
+          dev["hasPermission"] = false
+          deviceList.add(
+            dev
+          )
+        }
+        result.success(deviceList)
       }
       else -> result.notImplemented()
     }
